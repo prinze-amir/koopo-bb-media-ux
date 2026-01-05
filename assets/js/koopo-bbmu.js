@@ -196,13 +196,21 @@ if (!ok) window.location.reload();
 
   function renderUploader(mode){
     const $m = ensureModal();
+
     const body = `
       <div class="koopo-bbmu-step koopo-bbmu-step-upload">
+        <div class="koopo-bbmu-actions koopo-bbmu-actions--top">
+          <button type="button" class="button button-primary koopo-bbmu-upload-btn">Upload or Take Photo</button>
+          <button type="button" class="button koopo-bbmu-choose-existing">Choose from Photos</button>
+          <button type="button" class="button koopo-bbmu-take-photo" style="display:none;">Take a Photo</button>
+          <button type="button" class="button koopo-bbmu-cancel-btn" data-bbmu-close="1">${esc(api.strings.cancel)}</button>
+        </div>
+
         <div class="koopo-bbmu-dropzone" role="button" tabindex="0">
           <div class="koopo-bbmu-dropzone__inner">
             <div class="koopo-bbmu-dropzone__icon">📷</div>
-            <div class="koopo-bbmu-dropzone__text">${esc(api.strings.chooseFile)}</div>
-            <div class="koopo-bbmu-dropzone__hint">Drag & drop or click to choose</div>
+            <div class="koopo-bbmu-dropzone__text">Drag & drop an image here</div>
+            <div class="koopo-bbmu-dropzone__hint">or click Upload</div>
           </div>
           <input type="file" class="koopo-bbmu-file" accept="image/*" />
         </div>
@@ -211,10 +219,29 @@ if (!ok) window.location.reload();
           <img class="koopo-bbmu-preview__img" alt="Preview" />
         </div>
 
-        <div class="koopo-bbmu-actions">
-          <button type="button" class="button button-primary koopo-bbmu-upload-btn">${esc(api.strings.chooseFile)}</button>
-          <button type="button" class="button koopo-bbmu-cancel-btn" data-bbmu-close="1">${esc(api.strings.cancel)}</button>
+        <div class="koopo-bbmu-picker" style="display:none;">
+          <div class="koopo-bbmu-picker__header">
+            <strong>Your Photos</strong>
+            <button type="button" class="button koopo-bbmu-picker__back">Back</button>
+          </div>
+          <div class="koopo-bbmu-picker__grid"></div>
+          <div class="koopo-bbmu-picker__footer">
+            <button type="button" class="button koopo-bbmu-picker__more">Load more</button>
+          </div>
         </div>
+
+        <div class="koopo-bbmu-camera" style="display:none;">
+          <div class="koopo-bbmu-camera__header">
+            <strong>Camera</strong>
+            <button type="button" class="button koopo-bbmu-camera__back">Back</button>
+          </div>
+          <video class="koopo-bbmu-camera__video" autoplay playsinline></video>
+          <div class="koopo-bbmu-camera__actions">
+            <button type="button" class="button button-primary koopo-bbmu-camera__capture">Capture</button>
+          </div>
+          <canvas class="koopo-bbmu-camera__canvas" style="display:none;"></canvas>
+        </div>
+
         <div class="koopo-bbmu-feedback" aria-live="polite"></div>
       </div>
     `;
@@ -224,6 +251,12 @@ if (!ok) window.location.reload();
     const $dz = $m.find('.koopo-bbmu-dropzone');
     const $previewWrap = $m.find('.koopo-bbmu-preview');
     const $previewImg = $m.find('.koopo-bbmu-preview__img');
+    const $picker = $m.find('.koopo-bbmu-picker');
+    const $pickerGrid = $m.find('.koopo-bbmu-picker__grid');
+    const $camera = $m.find('.koopo-bbmu-camera');
+    const $takeBtn = $m.find('.koopo-bbmu-take-photo');
+
+    let pickerPage = 1;
 
     function showPreview(file){
       try {
@@ -233,16 +266,138 @@ if (!ok) window.location.reload();
       } catch(e){}
     }
 
+    function showPicker(){
+      $dz.hide();
+      $camera.hide();
+      $previewWrap.hide();
+      $picker.show();
+      pickerPage = 1;
+      $pickerGrid.empty();
+      loadPickerPage(true);
+    }
+
+    async function loadPickerPage(reset){
+      setFeedback('Loading photos…', false);
+      const fd = new FormData();
+      fd.append('action','koopo_bbmu_list_user_media');
+      fd.append('nonce', api.nonceMediaSet);
+      fd.append('page', String(pickerPage));
+      fd.append('per_page', '24');
+
+      const res = await fetch(ajaxUrl, { method:'POST', credentials:'same-origin', body: fd });
+      const json = await res.json();
+
+      if (!json || !json.success) {
+        setFeedback((json && json.data && json.data.message) ? json.data.message : api.strings.errorGeneric, true);
+        return;
+      }
+
+      const items = (json.data && json.data.items) ? json.data.items : [];
+      if (!items.length && pickerPage === 1) {
+        setFeedback('No photos found yet.', false);
+      } else {
+        setFeedback('', false);
+      }
+
+      items.forEach(it => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'koopo-bbmu-picker__item';
+        btn.setAttribute('data-media-id', String(it.media_id));
+        btn.innerHTML = '<img alt="" src="'+esc(it.thumb)+'" />';
+        btn.addEventListener('click', function(e){
+          e.preventDefault();
+          const mid = it.media_id;
+          if (!mid) return;
+          if (mode === 'cover') setCoverFromMedia(mid);
+          else prepareAvatarFromMedia(mid);
+        });
+        $pickerGrid[0].appendChild(btn);
+      });
+
+      const hasMore = !!(json.data && json.data.has_more);
+      $m.find('.koopo-bbmu-picker__more').toggle(hasMore);
+    }
+
+    async function showCamera(){
+      $dz.hide();
+      $picker.hide();
+      $previewWrap.hide();
+      $camera.show();
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const video = $m.find('.koopo-bbmu-camera__video')[0];
+        video.srcObject = stream;
+
+        $m.find('.koopo-bbmu-camera__capture').off('click').on('click', async function(){
+          const v = video;
+          const canvas = $m.find('.koopo-bbmu-camera__canvas')[0];
+          canvas.width = v.videoWidth || 640;
+          canvas.height = v.videoHeight || 480;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+
+          const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92));
+          if (!blob) return;
+
+          // Stop stream
+          try { stream.getTracks().forEach(t => t.stop()); } catch(e){}
+
+          const file = new File([blob], 'camera.jpg', { type:'image/jpeg' });
+          showPreview(file);
+          uploadFile(file, mode);
+        });
+
+        // back button stops stream
+        $m.find('.koopo-bbmu-camera__back').off('click').on('click', function(){
+          try { stream.getTracks().forEach(t => t.stop()); } catch(e){}
+          $camera.hide();
+          $dz.show();
+        });
+
+      } catch(err){
+        setFeedback('Camera not available or permission denied.', true);
+        $camera.hide();
+        $dz.show();
+      }
+    }
+
+    // Show camera button only if supported
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      $takeBtn.show();
+    }
+
+    // Upload button opens file picker
     $m.find('.koopo-bbmu-upload-btn').on('click', function(){
-      $file.trigger('click');
+      $file[0].click();
     });
 
+    $m.find('.koopo-bbmu-choose-existing').on('click', function(){
+      showPicker();
+    });
+
+    $takeBtn.on('click', function(){
+      showCamera();
+    });
+
+    $m.find('.koopo-bbmu-picker__back').on('click', function(){
+      $picker.hide();
+      $dz.show();
+    });
+
+    $m.find('.koopo-bbmu-picker__more').on('click', function(){
+      pickerPage += 1;
+      loadPickerPage(false);
+    });
+
+    // Dropzone
     $dz.on('click', function(){
-      $file.trigger('click');
+      $file[0].click();
     });
 
     $dz.on('keydown', function(e){
-      if (e.key === 'Enter' || e.key === ' ') $file.trigger('click');
+      if (e.key === 'Enter' || e.key === ' ') $file[0].click();
     });
 
     $dz.on('dragover', function(e){
@@ -478,6 +633,19 @@ async function setCoverFromMedia(mediaId){
   finalizeSuccess('cover', json.data.url);
 }
 
+function captureMediaActionClicks(){
+  document.addEventListener('pointerdown', function(e){
+    const t = e.target && e.target.closest ? e.target.closest('.koopo-bbmu-set-avatar, .koopo-bbmu-set-cover') : null;
+    if (!t) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const mediaId = t.getAttribute('data-media-id');
+    if (!mediaId) return;
+    if (t.classList.contains('koopo-bbmu-set-cover')) setCoverFromMedia(mediaId);
+    else prepareAvatarFromMedia(mediaId);
+  }, true);
+}
+
   function initInterceptors(){
     // Intercept BuddyBoss "change avatar" and "change cover" links anywhere on the page.
     $(document).on('click', 'a[href*="change-avatar"]', function(e){
@@ -491,7 +659,14 @@ async function setCoverFromMedia(mediaId){
     });
   }
 
-  $(function(){ initInterceptors(); injectPhotoActions(); observeMediaGrid(); });
+  $(function(){ initInterceptors(); injectPhotoActions(); observeMediaGrid(); observeGlobalDom(); captureMediaActionClicks(); });
+
+function observeGlobalDom(){
+  const obs = new MutationObserver(function(){
+    injectPhotoActions();
+  });
+  obs.observe(document.body, { childList:true, subtree:true });
+}
 
 function observeMediaGrid(){
   const container = document.querySelector('#media-stream, .bb-media-container');
