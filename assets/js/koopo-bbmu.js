@@ -200,7 +200,6 @@ if (!ok) window.location.reload();
     const body = `
       <div class="koopo-bbmu-step koopo-bbmu-step-upload">
         <div class="koopo-bbmu-actions koopo-bbmu-actions--top">
-          <button type="button" class="button button-primary koopo-bbmu-upload-btn">Upload or Take Photo</button>
           <button type="button" class="button koopo-bbmu-choose-existing">Choose from Photos</button>
           <button type="button" class="button koopo-bbmu-take-photo" style="display:none;">Take a Photo</button>
           <button type="button" class="button koopo-bbmu-cancel-btn" data-bbmu-close="1">${esc(api.strings.cancel)}</button>
@@ -369,9 +368,9 @@ if (!ok) window.location.reload();
     }
 
     // Upload button opens file picker
-    $m.find('.koopo-bbmu-upload-btn').on('click', function(){
-      $file[0].click();
-    });
+    // $m.find('.koopo-bbmu-upload-btn').on('click', function(){
+    //   $file[0].click();
+    // });
 
     $m.find('.koopo-bbmu-choose-existing').on('click', function(){
       showPicker();
@@ -393,6 +392,8 @@ if (!ok) window.location.reload();
 
     // Dropzone
     $dz.on('click', function(){
+            e.preventDefault();
+
       $file[0].click();
     });
 
