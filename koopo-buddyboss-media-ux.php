@@ -2,13 +2,13 @@
 /**
  * Plugin Name: Koopo BuddyBoss Media UX
  * Description: Improves BuddyBoss avatar/cover UX with on-page modals and modern cropping, plus extensible media features.
- * Version: 0.4.1
+ * Version: 0.5.0
  * Author: Koopo
  */
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'KOOPO_BBMU_VERSION', '0.4.1' );
+define( 'KOOPO_BBMU_VERSION', '0.5.0' );
 define( 'KOOPO_BBMU_DIR', plugin_dir_path( __FILE__ ) );
 define( 'KOOPO_BBMU_URL', plugin_dir_url( __FILE__ ) );
 
@@ -17,6 +17,8 @@ class Koopo_BuddyBoss_Media_UX {
 	public function __construct() {
 		add_action( 'admin_init', array( $this, 'register_offload_settings' ) );
 		add_action( 'admin_menu', array( $this, 'register_offload_menu' ) );
+		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
+		add_filter( 'RML/Active', array( $this, 'filter_rml_active' ), 10, 1 );
 
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'wp_ajax_koopo_bbmu_prepare_avatar_from_media', array( $this, 'ajax_prepare_avatar_from_media' ) );
@@ -24,6 +26,12 @@ class Koopo_BuddyBoss_Media_UX {
 		add_action( 'wp_ajax_koopo_bbmu_list_user_media', array( $this, 'ajax_list_user_media' ) );
 
 		add_action( 'bb_media_upload', array( $this, 'handle_media_upload' ) );
+		add_action( 'add_attachment', array( $this, 'handle_attachment_created' ) );
+		add_action( 'added_post_meta', array( $this, 'handle_attachment_meta_linked' ), 10, 4 );
+		add_action( 'updated_post_meta', array( $this, 'handle_attachment_meta_linked' ), 10, 4 );
+		add_action( 'bp_media_add', array( $this, 'handle_bp_media_add' ), 10, 1 );
+		add_action( 'koopo_stories_story_created', array( $this, 'handle_story_created' ), 10, 3 );
+		add_action( 'koopo_bbmu_offload_uploaded', array( $this, 'handle_offload_uploaded' ), 10, 2 );
 		add_filter( 'wp_get_attachment_url', array( $this, 'filter_attachment_url' ), 10, 2 );
 		add_filter( 'wp_get_attachment_image_src', array( $this, 'filter_attachment_image_src' ), 10, 4 );
 	}
@@ -306,6 +314,15 @@ class Koopo_BuddyBoss_Media_UX {
 		);
 	}
 
+	public function enqueue_admin_assets( $hook ) {
+		if ( 'settings_page_koopo-bbmu-offload' !== $hook ) {
+			return;
+		}
+
+		wp_enqueue_style( 'koopo-bbmu-admin', KOOPO_BBMU_URL . 'assets/css/koopo-bbmu-admin.css', array(), KOOPO_BBMU_VERSION );
+		wp_enqueue_script( 'koopo-bbmu-admin', KOOPO_BBMU_URL . 'assets/js/koopo-bbmu-admin.js', array( 'jquery' ), KOOPO_BBMU_VERSION, true );
+	}
+
 	public function register_offload_settings() {
 		register_setting(
 			'koopo_bbmu_offload',
@@ -334,6 +351,116 @@ class Koopo_BuddyBoss_Media_UX {
 				'type'              => 'string',
 				'sanitize_callback' => array( $this, 'sanitize_scope' ),
 				'default'           => 'buddyboss',
+			)
+		);
+
+		register_setting(
+			'koopo_bbmu_offload',
+			'koopo_bbmu_offload_provider',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( $this, 'sanitize_provider' ),
+				'default'           => 'bunny',
+			)
+		);
+
+		register_setting(
+			'koopo_bbmu_offload',
+			'koopo_bbmu_bunny_storage_zone',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+				'default'           => '',
+			)
+		);
+
+		register_setting(
+			'koopo_bbmu_offload',
+			'koopo_bbmu_bunny_api_key',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+				'default'           => '',
+			)
+		);
+
+		register_setting(
+			'koopo_bbmu_offload',
+			'koopo_bbmu_rml_enabled',
+			array(
+				'type'              => 'boolean',
+				'sanitize_callback' => array( $this, 'sanitize_checkbox' ),
+				'default'           => false,
+			)
+		);
+
+		register_setting(
+			'koopo_bbmu_offload',
+			'koopo_bbmu_rml_user_folders_enabled',
+			array(
+				'type'              => 'boolean',
+				'sanitize_callback' => array( $this, 'sanitize_checkbox' ),
+				'default'           => false,
+			)
+		);
+
+		register_setting(
+			'koopo_bbmu_offload',
+			'koopo_bbmu_rml_user_folder_parent',
+			array(
+				'type'              => 'integer',
+				'sanitize_callback' => 'absint',
+				'default'           => 0,
+			)
+		);
+
+		register_setting(
+			'koopo_bbmu_offload',
+			'koopo_bbmu_rml_user_folder_template',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+				'default'           => 'Users/{user_login}',
+			)
+		);
+
+		register_setting(
+			'koopo_bbmu_offload',
+			'koopo_bbmu_rml_folder_map',
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => array( $this, 'sanitize_rml_folder_map' ),
+				'default'           => $this->get_default_rml_folder_map(),
+			)
+		);
+
+		register_setting(
+			'koopo_bbmu_offload',
+			'koopo_bbmu_rml_folder_create',
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => array( $this, 'sanitize_rml_folder_create' ),
+				'default'           => array(),
+			)
+		);
+
+		register_setting(
+			'koopo_bbmu_offload',
+			'koopo_bbmu_offload_delete_policy',
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => array( $this, 'sanitize_delete_policy' ),
+				'default'           => $this->get_default_delete_policy(),
+			)
+		);
+
+		register_setting(
+			'koopo_bbmu_offload',
+			'koopo_bbmu_offload_delete_extensions',
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => array( $this, 'sanitize_delete_extensions' ),
+				'default'           => $this->get_default_delete_extensions(),
 			)
 		);
 
@@ -371,6 +498,27 @@ class Koopo_BuddyBoss_Media_UX {
 			'koopo_bbmu_offload_main',
 			__( 'Offload Settings', 'koopo' ),
 			array( $this, 'render_offload_section' ),
+			'koopo-bbmu-offload'
+		);
+
+		add_settings_section(
+			'koopo_bbmu_offload_provider',
+			__( 'Provider', 'koopo' ),
+			array( $this, 'render_provider_section' ),
+			'koopo-bbmu-offload'
+		);
+
+		add_settings_section(
+			'koopo_bbmu_offload_library',
+			__( 'Media Library (Real Media Library)', 'koopo' ),
+			array( $this, 'render_rml_section' ),
+			'koopo-bbmu-offload'
+		);
+
+		add_settings_section(
+			'koopo_bbmu_offload_delete',
+			__( 'Delete Local Copies', 'koopo' ),
+			array( $this, 'render_delete_section' ),
 			'koopo-bbmu-offload'
 		);
 
@@ -421,6 +569,62 @@ class Koopo_BuddyBoss_Media_UX {
 			'koopo-bbmu-offload',
 			'koopo_bbmu_offload_main'
 		);
+
+		add_settings_field(
+			'koopo_bbmu_offload_provider',
+			__( 'Provider', 'koopo' ),
+			array( $this, 'render_offload_provider_field' ),
+			'koopo-bbmu-offload',
+			'koopo_bbmu_offload_provider'
+		);
+
+		add_settings_field(
+			'koopo_bbmu_bunny_storage_zone',
+			__( 'Bunny Storage Zone', 'koopo' ),
+			array( $this, 'render_bunny_storage_zone_field' ),
+			'koopo-bbmu-offload',
+			'koopo_bbmu_offload_provider'
+		);
+
+		add_settings_field(
+			'koopo_bbmu_bunny_api_key',
+			__( 'Bunny API Key', 'koopo' ),
+			array( $this, 'render_bunny_api_key_field' ),
+			'koopo-bbmu-offload',
+			'koopo_bbmu_offload_provider'
+		);
+
+		add_settings_field(
+			'koopo_bbmu_rml_enabled',
+			__( 'Enable RML Integration', 'koopo' ),
+			array( $this, 'render_rml_enabled_field' ),
+			'koopo-bbmu-offload',
+			'koopo_bbmu_offload_library'
+		);
+
+		add_settings_field(
+			'koopo_bbmu_rml_folder_map',
+			__( 'RML Folder Mapping', 'koopo' ),
+			array( $this, 'render_rml_folder_map_field' ),
+			'koopo-bbmu-offload',
+			'koopo_bbmu_offload_library'
+		);
+
+		add_settings_field(
+			'koopo_bbmu_offload_delete_policy',
+			__( 'Delete Policy', 'koopo' ),
+			array( $this, 'render_delete_policy_field' ),
+			'koopo-bbmu-offload',
+			'koopo_bbmu_offload_delete'
+		);
+
+		add_settings_field(
+			'koopo_bbmu_offload_delete_extensions',
+			__( 'Delete Extensions', 'koopo' ),
+			array( $this, 'render_delete_extensions_field' ),
+			'koopo-bbmu-offload',
+			'koopo_bbmu_offload_delete'
+		);
 	}
 
 	public function render_offload_settings_page() {
@@ -428,15 +632,35 @@ class Koopo_BuddyBoss_Media_UX {
 			return;
 		}
 		?>
-		<div class="wrap">
-			<h1><?php esc_html_e( 'Koopo Media Offload', 'koopo' ); ?></h1>
-			<form method="post" action="options.php">
-				<?php
-				settings_fields( 'koopo_bbmu_offload' );
-				do_settings_sections( 'koopo-bbmu-offload' );
-				submit_button();
-				?>
-			</form>
+		<div class="koopo-admin">
+			<div class="koopo-admin__header">
+				<div class="koopo-admin__title">
+					<?php esc_html_e( 'Koopo BuddyBoss Media UX', 'koopo' ); ?>
+					<span class="koopo-admin__version"><?php echo esc_html( 'v' . KOOPO_BBMU_VERSION ); ?></span>
+				</div>
+				<div class="koopo-admin__actions">
+					<a class="button button-primary koopo-admin__button" href="#"><?php esc_html_e( 'Documentation', 'koopo' ); ?></a>
+				</div>
+			</div>
+			<div class="koopo-admin__layout">
+				<aside class="koopo-admin__sidebar">
+					<div class="koopo-admin__nav">
+						<a class="koopo-admin__nav-item is-active" href="#" data-section="section-0"><?php esc_html_e( 'Settings', 'koopo' ); ?></a>
+						<a class="koopo-admin__nav-item" href="#" data-section="section-1"><?php esc_html_e( 'Provider', 'koopo' ); ?></a>
+						<a class="koopo-admin__nav-item" href="#" data-section="section-2"><?php esc_html_e( 'Media Library', 'koopo' ); ?></a>
+						<a class="koopo-admin__nav-item" href="#" data-section="section-3"><?php esc_html_e( 'Delete Local', 'koopo' ); ?></a>
+					</div>
+				</aside>
+				<main class="koopo-admin__main">
+					<form method="post" action="options.php" class="koopo-admin__form">
+						<?php
+						settings_fields( 'koopo_bbmu_offload' );
+						do_settings_sections( 'koopo-bbmu-offload' );
+						submit_button();
+						?>
+					</form>
+				</main>
+			</div>
 		</div>
 		<?php
 	}
@@ -446,12 +670,27 @@ class Koopo_BuddyBoss_Media_UX {
 		echo '<p>' . esc_html__( 'Use folder templates to organize media by post type and media type. Available tokens: {post_type}, {media_type}, {year}, {month}, {day}, {filename}.', 'koopo' ) . '</p>';
 	}
 
+	public function render_provider_section() {
+		echo '<p>' . esc_html__( 'Select the offload provider and store its credentials. Upload handling is performed by an adapter hooked into koopo_bbmu_offload_attachment.', 'koopo' ) . '</p>';
+	}
+
+	public function render_rml_section() {
+		echo '<p>' . esc_html__( 'Map uploaded media to Real Media Library folders based on post type and media type. Use the create field to make new folders on save.', 'koopo' ) . '</p>';
+	}
+
+	public function render_delete_section() {
+		echo '<p>' . esc_html__( 'If enabled by adapter, local files can be deleted after offload. Deletion is filtered by post type, media type, extension, and mapped folder.', 'koopo' ) . '</p>';
+	}
+
 	public function render_offload_enabled_field() {
 		$enabled = (bool) get_option( 'koopo_bbmu_offload_enabled', false );
 		?>
-		<label>
+		<label class="koopo-toggle">
 			<input type="checkbox" name="koopo_bbmu_offload_enabled" value="1" <?php checked( $enabled ); ?> />
-			<?php esc_html_e( 'Rewrite media URLs to the base URL', 'koopo' ); ?>
+			<span class="koopo-toggle__track" data-on="ON" data-off="OFF">
+				<span class="koopo-toggle__thumb"></span>
+			</span>
+			<span class="koopo-toggle__label"><?php esc_html_e( 'Rewrite media URLs to the base URL', 'koopo' ); ?></span>
 		</label>
 		<?php
 	}
@@ -478,15 +717,176 @@ class Koopo_BuddyBoss_Media_UX {
 		<?php
 	}
 
+	public function render_offload_provider_field() {
+		$value = (string) get_option( 'koopo_bbmu_offload_provider', 'bunny' );
+		?>
+		<select name="koopo_bbmu_offload_provider">
+			<option value="bunny" <?php selected( $value, 'bunny' ); ?>><?php esc_html_e( 'Bunny.net', 'koopo' ); ?></option>
+			<option value="s3" <?php selected( $value, 's3' ); ?>><?php esc_html_e( 'S3 Compatible', 'koopo' ); ?></option>
+			<option value="gdrive" <?php selected( $value, 'gdrive' ); ?>><?php esc_html_e( 'Google Drive', 'koopo' ); ?></option>
+			<option value="onedrive" <?php selected( $value, 'onedrive' ); ?>><?php esc_html_e( 'OneDrive', 'koopo' ); ?></option>
+		</select>
+		<?php
+	}
+
+	public function render_bunny_storage_zone_field() {
+		$value = (string) get_option( 'koopo_bbmu_bunny_storage_zone', '' );
+		?>
+		<input type="text" class="regular-text" name="koopo_bbmu_bunny_storage_zone" value="<?php echo esc_attr( $value ); ?>" />
+		<p class="description"><?php esc_html_e( 'Storage zone name for Bunny.net uploads.', 'koopo' ); ?></p>
+		<?php
+	}
+
+	public function render_bunny_api_key_field() {
+		$value = (string) get_option( 'koopo_bbmu_bunny_api_key', '' );
+		?>
+		<input type="password" class="regular-text" name="koopo_bbmu_bunny_api_key" value="<?php echo esc_attr( $value ); ?>" autocomplete="new-password" />
+		<p class="description"><?php esc_html_e( 'API key for Bunny.net storage API.', 'koopo' ); ?></p>
+		<?php
+	}
+
+	public function render_rml_enabled_field() {
+		$enabled = (bool) get_option( 'koopo_bbmu_rml_enabled', false );
+		$active  = function_exists( 'wp_rml_active' ) && wp_rml_active();
+		?>
+		<label class="koopo-toggle">
+			<input type="checkbox" name="koopo_bbmu_rml_enabled" value="1" <?php checked( $enabled ); ?> <?php disabled( ! $active ); ?> />
+			<span class="koopo-toggle__track" data-on="ON" data-off="OFF">
+				<span class="koopo-toggle__thumb"></span>
+			</span>
+			<span class="koopo-toggle__label"><?php esc_html_e( 'Assign attachments to Real Media Library folders', 'koopo' ); ?></span>
+		</label>
+		<?php if ( ! $active ) : ?>
+			<p class="description"><?php esc_html_e( 'Real Media Library is not active for the current user.', 'koopo' ); ?></p>
+		<?php endif; ?>
+		<?php
+	}
+
+	public function render_rml_folder_map_field() {
+		if ( ! function_exists( 'wp_rml_active' ) || ! wp_rml_active() || ! function_exists( 'wp_rml_selector' ) ) {
+			echo '<p>' . esc_html__( 'Activate Real Media Library to manage folder mappings.', 'koopo' ) . '</p>';
+			return;
+		}
+
+		$user_enabled = (bool) get_option( 'koopo_bbmu_rml_user_folders_enabled', false );
+		$user_parent  = (int) get_option( 'koopo_bbmu_rml_user_folder_parent', 0 );
+		$user_template = (string) get_option( 'koopo_bbmu_rml_user_folder_template', 'Users/{user_login}' );
+
+		echo '<div class="koopo-admin__card">';
+		echo '<h3>' . esc_html__( 'Per-User Folder', 'koopo' ) . '</h3>';
+		echo '<label class="koopo-toggle koopo-toggle--stacked">';
+		echo '<input type="checkbox" name="koopo_bbmu_rml_user_folders_enabled" value="1" ' . checked( $user_enabled, true, false ) . ' />';
+		echo '<span class="koopo-toggle__track" data-on="ON" data-off="OFF"><span class="koopo-toggle__thumb"></span></span>';
+		echo '<span class="koopo-toggle__label">' . esc_html__( 'Create a folder per user and add all their uploads to it', 'koopo' ) . '</span>';
+		echo '</label>';
+		echo '<p><label>' . esc_html__( 'Parent folder', 'koopo' ) . '</label><br />' . wp_rml_selector(
+			array(
+				'selected' => $user_parent ? $user_parent : _wp_rml_root(),
+				'name'     => 'koopo_bbmu_rml_user_folder_parent',
+				'nullable' => true,
+			)
+		) . '</p>';
+		echo '<p><label>' . esc_html__( 'Folder name template', 'koopo' ) . '</label><br />';
+		echo '<input type="text" class="regular-text" name="koopo_bbmu_rml_user_folder_template" value="' . esc_attr( $user_template ) . '" />';
+		echo '<span class="description">' . esc_html__( 'Tokens: {user_id}, {user_login}, {user_nicename}, {display_name}', 'koopo' ) . '</span></p>';
+		echo '</div>';
+
+		$map       = $this->get_rml_folder_map();
+		$creates   = $this->get_rml_folder_create();
+		$contexts  = $this->get_post_type_labels();
+		$types     = $this->get_media_type_labels();
+
+		echo '<table class="widefat striped">';
+		echo '<thead><tr><th>' . esc_html__( 'Context', 'koopo' ) . '</th><th>' . esc_html__( 'Media Type', 'koopo' ) . '</th><th>' . esc_html__( 'Folder', 'koopo' ) . '</th><th>' . esc_html__( 'Create Folder Path', 'koopo' ) . '</th></tr></thead>';
+		echo '<tbody>';
+		foreach ( $contexts as $context_key => $context_label ) {
+			foreach ( $types as $type_key => $type_label ) {
+				$selected = isset( $map[ $context_key ][ $type_key ] ) ? (int) $map[ $context_key ][ $type_key ] : '';
+				$create   = isset( $creates[ $context_key ][ $type_key ] ) ? (string) $creates[ $context_key ][ $type_key ] : '';
+				echo '<tr>';
+				echo '<td>' . esc_html( $context_label ) . '</td>';
+				echo '<td>' . esc_html( $type_label ) . '</td>';
+				echo '<td>' . wp_rml_selector(
+					array(
+						'selected' => $selected,
+						'name'     => 'koopo_bbmu_rml_folder_map[' . esc_attr( $context_key ) . '][' . esc_attr( $type_key ) . ']',
+						'nullable' => true,
+					)
+				) . '</td>';
+				echo '<td><input type="text" class="regular-text" name="koopo_bbmu_rml_folder_create[' . esc_attr( $context_key ) . '][' . esc_attr( $type_key ) . ']" value="' . esc_attr( $create ) . '" placeholder="social/photos" /></td>';
+				echo '</tr>';
+			}
+		}
+		echo '</tbody></table>';
+	}
+
+	public function render_delete_policy_field() {
+		$policy   = $this->get_delete_policy();
+		$contexts = $this->get_post_type_labels();
+		$types    = $this->get_media_type_labels();
+
+		echo '<table class="widefat striped">';
+		echo '<thead><tr><th>' . esc_html__( 'Context', 'koopo' ) . '</th><th>' . esc_html__( 'Media Type', 'koopo' ) . '</th><th>' . esc_html__( 'Delete Local', 'koopo' ) . '</th></tr></thead>';
+		echo '<tbody>';
+		foreach ( $contexts as $context_key => $context_label ) {
+			foreach ( $types as $type_key => $type_label ) {
+				$checked = ! empty( $policy[ $context_key ][ $type_key ] );
+				echo '<tr>';
+				echo '<td>' . esc_html( $context_label ) . '</td>';
+				echo '<td>' . esc_html( $type_label ) . '</td>';
+				echo '<td><label class="koopo-toggle koopo-toggle--compact"><input type="checkbox" name="koopo_bbmu_offload_delete_policy[' . esc_attr( $context_key ) . '][' . esc_attr( $type_key ) . ']" value="1" ' . checked( $checked, true, false ) . ' /><span class="koopo-toggle__track" data-on="ON" data-off="OFF"><span class="koopo-toggle__thumb"></span></span></label></td>';
+				echo '</tr>';
+			}
+		}
+		echo '</tbody></table>';
+		echo '<p class="description">' . esc_html__( 'Deletion is only applied when the attachment is in the mapped folder and the extension matches the allowed list.', 'koopo' ) . '</p>';
+	}
+
+	public function render_delete_extensions_field() {
+		$values = $this->get_delete_extensions();
+		$types  = $this->get_media_type_labels();
+		foreach ( $types as $type_key => $type_label ) {
+			$value = isset( $values[ $type_key ] ) ? (string) $values[ $type_key ] : '';
+			?>
+			<p>
+				<label for="koopo-bbmu-delete-ext-<?php echo esc_attr( $type_key ); ?>"><?php echo esc_html( $type_label ); ?></label><br />
+				<input
+					type="text"
+					class="regular-text"
+					id="koopo-bbmu-delete-ext-<?php echo esc_attr( $type_key ); ?>"
+					name="koopo_bbmu_offload_delete_extensions[<?php echo esc_attr( $type_key ); ?>]"
+					value="<?php echo esc_attr( $value ); ?>"
+					placeholder="jpg,png,webp"
+				/>
+			</p>
+			<?php
+		}
+	}
+
+	public function filter_rml_active( $active ) {
+		if ( is_admin() ) {
+			return $active;
+		}
+
+		if ( current_user_can( 'manage_options' ) ) {
+			return $active;
+		}
+
+		return false;
+	}
+
 	public function render_offload_media_types_field() {
 		$values = $this->get_offload_media_types();
 		$types  = $this->get_media_type_labels();
 		foreach ( $types as $key => $label ) {
 			$checked = ! empty( $values[ $key ] );
 			?>
-			<label style="display:block;">
+			<label class="koopo-toggle koopo-toggle--stacked">
 				<input type="checkbox" name="koopo_bbmu_offload_media_types[<?php echo esc_attr( $key ); ?>]" value="1" <?php checked( $checked ); ?> />
-				<?php echo esc_html( $label ); ?>
+				<span class="koopo-toggle__track" data-on="ON" data-off="OFF">
+					<span class="koopo-toggle__thumb"></span>
+				</span>
+				<span class="koopo-toggle__label"><?php echo esc_html( $label ); ?></span>
 			</label>
 			<?php
 		}
@@ -498,9 +898,12 @@ class Koopo_BuddyBoss_Media_UX {
 		foreach ( $types as $key => $label ) {
 			$checked = ! empty( $values[ $key ] );
 			?>
-			<label style="display:block;">
+			<label class="koopo-toggle koopo-toggle--stacked">
 				<input type="checkbox" name="koopo_bbmu_offload_post_types[<?php echo esc_attr( $key ); ?>]" value="1" <?php checked( $checked ); ?> />
-				<?php echo esc_html( $label ); ?>
+				<span class="koopo-toggle__track" data-on="ON" data-off="OFF">
+					<span class="koopo-toggle__thumb"></span>
+				</span>
+				<span class="koopo-toggle__label"><?php echo esc_html( $label ); ?></span>
 			</label>
 			<?php
 		}
@@ -533,6 +936,11 @@ class Koopo_BuddyBoss_Media_UX {
 
 	public function sanitize_scope( $value ) {
 		return ( 'all' === $value ) ? 'all' : 'buddyboss';
+	}
+
+	public function sanitize_provider( $value ) {
+		$allowed = array( 'bunny', 's3', 'gdrive', 'onedrive' );
+		return in_array( $value, $allowed, true ) ? $value : 'bunny';
 	}
 
 	public function sanitize_media_types( $value ) {
@@ -571,6 +979,196 @@ class Koopo_BuddyBoss_Media_UX {
 		return $clean;
 	}
 
+	public function sanitize_rml_folder_map( $value ) {
+		$contexts = array_keys( $this->get_post_type_labels() );
+		$types    = array_keys( $this->get_media_type_labels() );
+		$clean    = array();
+
+		if ( is_array( $value ) ) {
+			foreach ( $contexts as $context ) {
+				foreach ( $types as $type ) {
+					$folder_id = isset( $value[ $context ][ $type ] ) ? absint( $value[ $context ][ $type ] ) : 0;
+					if ( $folder_id ) {
+						$clean[ $context ][ $type ] = $folder_id;
+					}
+				}
+			}
+		}
+
+		return $clean;
+	}
+
+	public function sanitize_rml_folder_create( $value ) {
+		$contexts = array_keys( $this->get_post_type_labels() );
+		$types    = array_keys( $this->get_media_type_labels() );
+		$clean    = array();
+
+		if ( ! function_exists( 'wp_rml_active' ) || ! wp_rml_active() || ! function_exists( 'wp_rml_create_p' ) ) {
+			return $clean;
+		}
+
+		if ( is_array( $value ) ) {
+			foreach ( $contexts as $context ) {
+				foreach ( $types as $type ) {
+					$path = isset( $value[ $context ][ $type ] ) ? sanitize_text_field( $value[ $context ][ $type ] ) : '';
+					$path = trim( $path );
+					if ( '' === $path ) {
+						continue;
+					}
+
+					$parent_id = function_exists( '_wp_rml_root' ) ? _wp_rml_root() : -1;
+					$created   = wp_rml_create_p( $path, $parent_id, defined( 'RML_TYPE_FOLDER' ) ? RML_TYPE_FOLDER : 0 );
+					if ( is_int( $created ) && $created > 0 ) {
+						$map = $this->get_rml_folder_map();
+						$map[ $context ][ $type ] = $created;
+						update_option( 'koopo_bbmu_rml_folder_map', $map );
+					} else {
+						$clean[ $context ][ $type ] = $path;
+					}
+				}
+			}
+		}
+
+		return $clean;
+	}
+
+	public function sanitize_delete_policy( $value ) {
+		$contexts = array_keys( $this->get_post_type_labels() );
+		$types    = array_keys( $this->get_media_type_labels() );
+		$clean    = array();
+
+		if ( is_array( $value ) ) {
+			foreach ( $contexts as $context ) {
+				foreach ( $types as $type ) {
+					$clean[ $context ][ $type ] = ! empty( $value[ $context ][ $type ] ) ? 1 : 0;
+				}
+			}
+		}
+
+		return $clean;
+	}
+
+	public function sanitize_delete_extensions( $value ) {
+		$types = array_keys( $this->get_media_type_labels() );
+		$clean = array();
+
+		if ( is_array( $value ) ) {
+			foreach ( $types as $type ) {
+				$list = isset( $value[ $type ] ) ? sanitize_text_field( $value[ $type ] ) : '';
+				$list = strtolower( trim( $list ) );
+				$clean[ $type ] = $list;
+			}
+		}
+
+		return $clean;
+	}
+
+	public function handle_attachment_created( $attachment_id ) {
+		$attachment_id = (int) $attachment_id;
+		if ( ! $attachment_id ) {
+			return;
+		}
+
+		if ( $this->is_buddyboss_media_attachment( $attachment_id ) ) {
+			return;
+		}
+
+		$context = $this->detect_context_from_request( $attachment_id );
+		if ( $context ) {
+			update_post_meta( $attachment_id, 'koopo_bbmu_context', $context );
+			$this->maybe_assign_rml_folder_for_context( $attachment_id, $context );
+		} else {
+			$this->maybe_assign_rml_folder( $attachment_id );
+		}
+
+		$context    = $this->get_attachment_context( $attachment_id );
+		$media_type = $this->get_media_type_key( $attachment_id );
+		$offload_key = $this->build_offload_key( $attachment_id, 'full' );
+
+		do_action(
+			'koopo_bbmu_offload_attachment',
+			$attachment_id,
+			array(
+				'context' => 'wp_attachment',
+				'post_type' => $context,
+				'media_type' => $media_type,
+				'provider' => $this->get_offload_provider(),
+				'base_url' => $this->get_offload_base_url(),
+				'offload_key' => $offload_key,
+			)
+		);
+	}
+
+	public function handle_offload_uploaded( $attachment_id, $result = array() ) {
+		$attachment_id = (int) $attachment_id;
+		if ( ! $attachment_id ) {
+			return;
+		}
+
+		$this->maybe_delete_local_files( $attachment_id );
+	}
+
+	public function handle_bp_media_add( $media ) {
+		if ( empty( $media ) || empty( $media->attachment_id ) ) {
+			return;
+		}
+
+		$this->maybe_assign_rml_folder( (int) $media->attachment_id );
+	}
+
+	public function handle_story_created( $story_id, $item_id, $user_id ) {
+		$attachment_id = (int) get_post_meta( $item_id, 'attachment_id', true );
+		if ( ! $attachment_id ) {
+			return;
+		}
+
+		update_post_meta( $attachment_id, 'koopo_bbmu_context', 'social' );
+		$this->maybe_assign_rml_folder_for_context( $attachment_id, 'social' );
+	}
+
+	public function handle_attachment_meta_linked( $meta_id, $post_id, $meta_key, $meta_value ) {
+		if ( '_thumbnail_id' === $meta_key ) {
+			$attachment_id = absint( $meta_value );
+			if ( ! $attachment_id ) {
+				return;
+			}
+
+			$post = get_post( $post_id );
+			if ( ! $post ) {
+				return;
+			}
+
+			$context = (string) $post->post_type;
+			update_post_meta( $attachment_id, 'koopo_bbmu_context', $context );
+			$this->maybe_assign_rml_folder_for_context( $attachment_id, $context );
+			return;
+		}
+
+		if ( '_product_image_gallery' === $meta_key ) {
+			$ids = array();
+			if ( is_array( $meta_value ) ) {
+				$ids = $meta_value;
+			} else {
+				$ids = array_filter( array_map( 'absint', explode( ',', (string) $meta_value ) ) );
+			}
+
+			if ( empty( $ids ) ) {
+				return;
+			}
+
+			$post = get_post( $post_id );
+			if ( ! $post ) {
+				return;
+			}
+
+			$context = (string) $post->post_type;
+			foreach ( $ids as $attachment_id ) {
+				update_post_meta( $attachment_id, 'koopo_bbmu_context', $context );
+				$this->maybe_assign_rml_folder_for_context( $attachment_id, $context );
+			}
+		}
+	}
+
 	public function handle_media_upload( $attachment ) {
 		if ( empty( $attachment ) || empty( $attachment->ID ) ) {
 			return;
@@ -578,6 +1176,12 @@ class Koopo_BuddyBoss_Media_UX {
 
 		$attachment_id = (int) $attachment->ID;
 		$media_id      = (int) get_post_meta( $attachment_id, 'bp_media_id', true );
+
+		$this->maybe_assign_rml_folder( $attachment_id );
+
+		$context    = $this->get_attachment_context( $attachment_id );
+		$media_type = $this->get_media_type_key( $attachment_id );
+		$offload_key = $this->build_offload_key( $attachment_id, 'full' );
 
 		/**
 		 * Allow offload adapters to move media after upload.
@@ -591,8 +1195,93 @@ class Koopo_BuddyBoss_Media_UX {
 			array(
 				'media_id' => $media_id,
 				'context'  => 'bb_media_upload',
+				'post_type' => $context,
+				'media_type' => $media_type,
+				'provider' => $this->get_offload_provider(),
+				'base_url' => $this->get_offload_base_url(),
+				'offload_key' => $offload_key,
 			)
 		);
+	}
+
+	private function maybe_assign_rml_folder( $attachment_id ) {
+		$context = $this->get_attachment_context( $attachment_id );
+		$this->maybe_assign_rml_folder_for_context( $attachment_id, $context );
+	}
+
+	private function maybe_assign_rml_folder_for_context( $attachment_id, $context ) {
+		if ( ! $this->is_rml_enabled() ) {
+			return;
+		}
+
+		if ( ! function_exists( 'wp_rml_move' ) || ! function_exists( 'wp_attachment_folder' ) ) {
+			return;
+		}
+
+		$media_type = $this->get_media_type_key( $attachment_id );
+		$map        = $this->get_rml_folder_map();
+		$folder_id  = isset( $map[ $context ][ $media_type ] ) ? absint( $map[ $context ][ $media_type ] ) : 0;
+		$user_folder_id = $this->get_or_create_user_folder_id( $attachment_id );
+
+		$primary_folder_id = $folder_id ? $folder_id : $user_folder_id;
+		if ( ! $primary_folder_id ) {
+			return;
+		}
+
+		$current_folder = (int) wp_attachment_folder( $attachment_id );
+		if ( $current_folder === $primary_folder_id ) {
+			return;
+		}
+
+		$result = wp_rml_move( $primary_folder_id, array( $attachment_id ), true );
+		if ( is_array( $result ) && function_exists( '_wp_rml_synchronize_attachment' ) ) {
+			_wp_rml_synchronize_attachment( $attachment_id, $primary_folder_id, false );
+		}
+
+		if ( function_exists( 'wp_rml_update_count' ) ) {
+			wp_rml_update_count( array( $primary_folder_id ), array( $attachment_id ) );
+		}
+
+		if ( $user_folder_id && $user_folder_id !== $primary_folder_id && function_exists( 'wp_rml_create_shortcuts' ) ) {
+			wp_rml_create_shortcuts( $user_folder_id, array( $attachment_id ), true );
+		}
+	}
+
+	private function maybe_delete_local_files( $attachment_id ) {
+		if ( ! $this->is_offload_enabled() ) {
+			return;
+		}
+
+		$context    = $this->get_attachment_context( $attachment_id );
+		$media_type = $this->get_media_type_key( $attachment_id );
+
+		if ( ! $this->is_delete_allowed( $attachment_id, $context, $media_type ) ) {
+			return;
+		}
+
+		$deleted = array();
+		$file    = get_attached_file( $attachment_id );
+		if ( $file && file_exists( $file ) ) {
+			if ( wp_delete_file( $file ) ) {
+				$deleted[] = $file;
+			}
+		}
+
+		$meta = wp_get_attachment_metadata( $attachment_id );
+		if ( ! empty( $meta['sizes'] ) && is_array( $meta['sizes'] ) ) {
+			$upload_dir = wp_get_upload_dir();
+			foreach ( $meta['sizes'] as $size ) {
+				if ( empty( $size['file'] ) ) {
+					continue;
+				}
+				$path = trailingslashit( $upload_dir['basedir'] ) . dirname( $meta['file'] ) . '/' . $size['file'];
+				if ( file_exists( $path ) && wp_delete_file( $path ) ) {
+					$deleted[] = $path;
+				}
+			}
+		}
+
+		do_action( 'koopo_bbmu_local_files_deleted', $attachment_id, $deleted );
 	}
 
 	public function filter_attachment_url( $url, $post_id ) {
@@ -680,7 +1369,83 @@ class Koopo_BuddyBoss_Media_UX {
 		return true;
 	}
 
+	private function is_delete_allowed( $attachment_id, $context, $media_type ) {
+		if ( ! $this->is_rml_enabled() ) {
+			return false;
+		}
+
+		$policy = $this->get_delete_policy();
+		if ( empty( $policy[ $context ][ $media_type ] ) ) {
+			return false;
+		}
+
+		if ( ! $this->is_extension_allowed( $attachment_id, $media_type ) ) {
+			return false;
+		}
+
+		$map = $this->get_rml_folder_map();
+		$folder_id = isset( $map[ $context ][ $media_type ] ) ? absint( $map[ $context ][ $media_type ] ) : 0;
+		if ( ! $folder_id ) {
+			return false;
+		}
+
+		if ( ! function_exists( 'wp_attachment_folder' ) ) {
+			return false;
+		}
+
+		$current_folder = (int) wp_attachment_folder( $attachment_id );
+		if ( $current_folder !== $folder_id ) {
+			return false;
+		}
+
+		$allowed = true;
+		return (bool) apply_filters( 'koopo_bbmu_delete_local_allowed', $allowed, $attachment_id, $context, $media_type, $folder_id );
+	}
+
+	private function is_extension_allowed( $attachment_id, $media_type ) {
+		$allowed_list = $this->get_delete_extensions();
+		$list = isset( $allowed_list[ $media_type ] ) ? (string) $allowed_list[ $media_type ] : '';
+		$list = trim( $list );
+
+		if ( '' === $list ) {
+			return true;
+		}
+
+		$file = get_attached_file( $attachment_id );
+		if ( ! $file ) {
+			return false;
+		}
+
+		$ext = strtolower( pathinfo( $file, PATHINFO_EXTENSION ) );
+		if ( '' === $ext ) {
+			return false;
+		}
+
+		$allowed = array();
+		foreach ( explode( ',', $list ) as $item ) {
+			$item = strtolower( trim( $item ) );
+			if ( '' !== $item ) {
+				$allowed[] = $item;
+			}
+		}
+
+		if ( empty( $allowed ) ) {
+			return true;
+		}
+
+		return in_array( $ext, $allowed, true );
+	}
+
 	private function get_attachment_context( $attachment_id ) {
+		$forced = (string) get_post_meta( $attachment_id, 'koopo_bbmu_context', true );
+		if ( '' !== $forced && array_key_exists( $forced, $this->get_post_type_labels() ) ) {
+			return $forced;
+		}
+
+		if ( get_post_meta( $attachment_id, 'bp_media_upload', true ) ) {
+			return 'social';
+		}
+
 		if ( $this->is_buddyboss_media_attachment( $attachment_id ) ) {
 			return 'social';
 		}
@@ -696,6 +1461,27 @@ class Koopo_BuddyBoss_Media_UX {
 		}
 
 		return (string) $parent->post_type;
+	}
+
+	private function detect_context_from_request( $attachment_id ) {
+		$keys = array( 'post_id', 'post_ID', 'post', 'parent_id' );
+		foreach ( $keys as $key ) {
+			if ( isset( $_REQUEST[ $key ] ) ) {
+				$post_id = absint( $_REQUEST[ $key ] );
+				if ( $post_id ) {
+					$post = get_post( $post_id );
+					if ( $post ) {
+						return (string) $post->post_type;
+					}
+				}
+			}
+		}
+
+		if ( get_post_meta( $attachment_id, 'bp_media_upload', true ) ) {
+			return 'social';
+		}
+
+		return '';
 	}
 
 	private function get_media_type_key( $attachment_id ) {
@@ -800,6 +1586,10 @@ class Koopo_BuddyBoss_Media_UX {
 		return (string) get_option( 'koopo_bbmu_offload_scope', 'buddyboss' );
 	}
 
+	private function get_offload_provider() {
+		return (string) get_option( 'koopo_bbmu_offload_provider', 'bunny' );
+	}
+
 	private function get_media_type_labels() {
 		return array(
 			'photos'    => __( 'Photos (images)', 'koopo' ),
@@ -864,6 +1654,120 @@ class Koopo_BuddyBoss_Media_UX {
 	private function get_offload_folder_templates() {
 		$value = get_option( 'koopo_bbmu_offload_folders', $this->get_default_folder_templates() );
 		return is_array( $value ) ? $value : $this->get_default_folder_templates();
+	}
+
+	private function get_or_create_user_folder_id( $attachment_id ) {
+		if ( ! $this->is_rml_enabled() ) {
+			return 0;
+		}
+
+		$enabled = (bool) get_option( 'koopo_bbmu_rml_user_folders_enabled', false );
+		if ( ! $enabled ) {
+			return 0;
+		}
+
+		if ( ! function_exists( 'wp_rml_get_object_by_id' ) || ! function_exists( 'wp_rml_create_p' ) ) {
+			return 0;
+		}
+
+		$user_id = 0;
+		$attachment = get_post( $attachment_id );
+		if ( $attachment && ! empty( $attachment->post_author ) ) {
+			$user_id = (int) $attachment->post_author;
+		}
+		if ( ! $user_id ) {
+			$user_id = get_current_user_id();
+		}
+		if ( ! $user_id ) {
+			return 0;
+		}
+
+		$cached = (int) get_user_meta( $user_id, 'koopo_bbmu_rml_user_folder_id', true );
+		if ( $cached > 0 ) {
+			$folder = wp_rml_get_object_by_id( $cached );
+			if ( function_exists( 'is_rml_folder' ) && is_rml_folder( $folder ) ) {
+				return $cached;
+			}
+		}
+
+		$user = get_user_by( 'id', $user_id );
+		if ( ! $user ) {
+			return 0;
+		}
+
+		$template = (string) get_option( 'koopo_bbmu_rml_user_folder_template', 'Users/{user_login}' );
+		$template = trim( $template );
+		$replacements = array(
+			'{user_id}' => (string) $user_id,
+			'{user_login}' => $user->user_login,
+			'{user_nicename}' => $user->user_nicename,
+			'{display_name}' => $user->display_name,
+		);
+
+		$path = strtr( $template, $replacements );
+		$path = trim( $path );
+		if ( '' === $path ) {
+			$path = 'Users/' . $user->user_login;
+		}
+
+		$parent = (int) get_option( 'koopo_bbmu_rml_user_folder_parent', 0 );
+		if ( ! $parent && function_exists( '_wp_rml_root' ) ) {
+			$parent = _wp_rml_root();
+		}
+
+		$created = wp_rml_create_p( $path, $parent, defined( 'RML_TYPE_FOLDER' ) ? RML_TYPE_FOLDER : 0 );
+		if ( is_int( $created ) && $created > 0 ) {
+			update_user_meta( $user_id, 'koopo_bbmu_rml_user_folder_id', $created );
+			return $created;
+		}
+
+		return 0;
+	}
+
+	private function is_rml_enabled() {
+		$enabled = (bool) get_option( 'koopo_bbmu_rml_enabled', false );
+		if ( ! $enabled ) {
+			return false;
+		}
+
+		return function_exists( 'wp_rml_move' );
+	}
+
+	private function get_default_rml_folder_map() {
+		return array();
+	}
+
+	private function get_rml_folder_map() {
+		$value = get_option( 'koopo_bbmu_rml_folder_map', $this->get_default_rml_folder_map() );
+		return is_array( $value ) ? $value : $this->get_default_rml_folder_map();
+	}
+
+	private function get_rml_folder_create() {
+		$value = get_option( 'koopo_bbmu_rml_folder_create', array() );
+		return is_array( $value ) ? $value : array();
+	}
+
+	private function get_default_delete_policy() {
+		return array();
+	}
+
+	private function get_delete_policy() {
+		$value = get_option( 'koopo_bbmu_offload_delete_policy', $this->get_default_delete_policy() );
+		return is_array( $value ) ? $value : $this->get_default_delete_policy();
+	}
+
+	private function get_default_delete_extensions() {
+		return array(
+			'photos'    => '',
+			'video'     => '',
+			'audio'     => '',
+			'documents' => '',
+		);
+	}
+
+	private function get_delete_extensions() {
+		$value = get_option( 'koopo_bbmu_offload_delete_extensions', $this->get_default_delete_extensions() );
+		return is_array( $value ) ? $value : $this->get_default_delete_extensions();
 	}
 
 }

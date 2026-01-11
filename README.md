@@ -152,9 +152,21 @@ When updating avatar or cover:
 
 ### **Phase 6 — Media Offloading (Performance & Scale)**
 
-**Status: Planned**
+**Status: In Progress**
 
-* Offload media to external storage:
+* Admin offload settings UI (provider selection, base URL, scoping)
+* Folder templates per post type and media type
+* Real Media Library (RML) mapping with context-based routing
+* Per-user RML folders (optional)
+* Deletion policy controls (by context/media type/extension) — gated by offload adapter
+* Offload adapter hooks (upload + post-upload)
+
+**Remaining**
+
+* Provider adapters (Bunny.net, S3-compatible, Google Drive, OneDrive)
+* Background offload queue + retry
+* Optional “delete local after offload” toggle validation in adapter
+* Media library backfill/migration tools
 
   * S3-compatible (AWS S3, Wasabi, Backblaze, DO Spaces)
   * OneDrive (later phase)
@@ -209,4 +221,3 @@ When updating avatar or cover:
 * Never rely on embedding BuddyBoss pages (iframe/fetch approach intentionally abandoned)
 * DOM updates must account for BuddyBoss Nouveau’s layered cover implementation
 * Media actions should be injected defensively (AJAX + MutationObserver)
-
