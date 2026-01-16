@@ -133,20 +133,22 @@ When updating avatar or cover:
 
 ### **Phase 5 — Image Optimization Pipeline**
 
-**Status: Planned**
+**Status: In Progress**
 
 * Automatic image optimization on upload:
 
   * Strip EXIF metadata (privacy)
   * Resize oversized images
-  * Compress intelligently
+  * Compress intelligently (quality settings)
   * Generate WebP (and AVIF where supported)
-* Background processing via Action Scheduler
+* Optional background processing via Action Scheduler (if available)
 * Admin settings:
 
   * quality
   * max dimensions
   * keep original or not
+  * allowed sizes
+  * WebP/AVIF toggles
 
 ---
 

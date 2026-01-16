@@ -119,7 +119,7 @@ body.koopo-bbmu-open { overflow:hidden; }
 /* Commit 002C: Prevent cover background layering (fix seam/split) */
 #cover-image-container { background-image: none !important; }
 #header-cover-image { background-image: none !important; }
-#header-cover-image img.header-cover-img { width: 100%; height: 100%; object-fit: cover; display:block; }
+#header-cover-image img.header-cover-img { width: 100%; height: 100%; object-fit: cover; display:block !important; }
 
 
 /* Commit 003: media action menu items */
