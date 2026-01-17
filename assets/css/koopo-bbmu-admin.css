@@ -229,6 +229,19 @@
   height: 1px;
 }
 
+.koopo-toggle input:disabled + .koopo-toggle__track,
+.koopo-toggle input:disabled + .koopo-toggle__track + .koopo-toggle__label,
+.koopo-toggle input:disabled ~ .koopo-toggle__label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.koopo-admin select:disabled,
+.koopo-admin input:disabled,
+.koopo-admin textarea:disabled {
+  cursor: not-allowed;
+}
+
 .koopo-toggle__track {
   align-items: center;
   background: #e07070;

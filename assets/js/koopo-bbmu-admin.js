@@ -5,13 +5,18 @@ jQuery(function($){
   var ajaxUrl = window.koopoBBMUAdmin ? window.koopoBBMUAdmin.ajaxUrl : '';
   var saveNonce = window.koopoBBMUAdmin ? window.koopoBBMUAdmin.saveNonce : '';
   var webpNonce = window.koopoBBMUAdmin ? window.koopoBBMUAdmin.webpNonce : '';
+  var offloadNonce = window.koopoBBMUAdmin ? window.koopoBBMUAdmin.offloadNonce : '';
   var messages = window.koopoBBMUAdmin ? window.koopoBBMUAdmin.messages : {};
   var $notice = $('.koopo-admin__notice-area');
   var $status = $('.koopo-admin__save-status');
   var $webpButton = $('.koopo-admin__webp-backfill');
-  var $webpBar = $('.koopo-admin__progress-bar');
-  var $webpProgress = $('.koopo-admin__progress');
-  var $webpText = $('.koopo-admin__progress-text');
+  var $webpProgress = $('.koopo-admin__progress').not('.koopo-admin__progress--offload');
+  var $webpBar = $webpProgress.find('.koopo-admin__progress-bar');
+  var $webpText = $('.koopo-admin__progress-text').not('.koopo-admin__progress-text--offload');
+  var $offloadButton = $('.koopo-admin__offload-backfill');
+  var $offloadProgress = $('.koopo-admin__progress--offload');
+  var $offloadBar = $offloadProgress.find('.koopo-admin__progress-bar');
+  var $offloadText = $('.koopo-admin__progress-text--offload');
 
   var $headings = $form.find('h2');
   if (!$headings.length) return;
@@ -158,5 +163,47 @@ jQuery(function($){
     $webpButton.prop('disabled', true);
     $webpText.text(messages.webpStarting || 'Starting WebP backfill…');
     runWebpBackfill(1);
+  });
+
+  function updateOffloadProgress(done, total) {
+    if (!$offloadBar.length || !$offloadProgress.length || !$offloadText.length) return;
+    var percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+    $offloadProgress.attr('aria-hidden', 'false');
+    $offloadBar.css('width', percent + '%');
+    $offloadText.text(done + ' / ' + total + ' images offloaded');
+  }
+
+  function runOffloadBackfill(page) {
+    if (!ajaxUrl || !offloadNonce) return;
+    $.post(ajaxUrl, {
+      action: 'koopo_bbmu_offload_backfill_step',
+      nonce: offloadNonce,
+      paged: page
+    }).done(function(resp){
+      if (!resp || !resp.success) {
+        $offloadText.text(messages.error || 'Offload backfill failed.');
+        $offloadButton.prop('disabled', false);
+        return;
+      }
+      var data = resp.data || {};
+      updateOffloadProgress(data.done || 0, data.total || 0);
+      if (data.status === 'complete') {
+        $offloadText.text(messages.offloadDone || 'Offload backfill complete.');
+        $offloadButton.prop('disabled', false);
+        return;
+      }
+      setTimeout(function(){
+        runOffloadBackfill(data.next || (page + 1));
+      }, 500);
+    }).fail(function(){
+      $offloadText.text(messages.error || 'Offload backfill failed.');
+      $offloadButton.prop('disabled', false);
+    });
+  }
+
+  $offloadButton.on('click', function(){
+    $offloadButton.prop('disabled', true);
+    $offloadText.text(messages.offloadStarting || 'Starting offload backfill…');
+    runOffloadBackfill(1);
   });
 });

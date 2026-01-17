@@ -17,6 +17,60 @@ This plugin is built to be **upgrade-safe**, **BuddyBoss-native**, and extensibl
 
 ---
 
+## What This Plugin Does
+
+* Replaces BuddyBoss avatar/cover uploads with an in‑modal flow (no redirects)
+* Lets users set avatar/cover from existing BuddyBoss photos
+* Adds media optimization options (resize cap, quality, WebP/AVIF, EXIF stripping)
+* Integrates Real Media Library (RML) folder mapping
+* Provides WebP backfill for previously uploaded images
+* Adds upload‑source metadata visible in Media Library and attachment details
+
+---
+
+## Configuration (Admin)
+
+Open **Settings → Koopo Media Offload** and configure each section:
+
+1. **Settings**
+   * Enable Offload URLs (optional)
+   * Choose scope: BuddyBoss only or all uploads
+   * Define folder templates per post type/media type
+
+2. **Provider**
+   * Set provider and base URL (for URL rewriting only)
+   * **Bunny setup (Storage + CDN)**
+     * Create a **Storage Zone** in Bunny.
+     * Generate a **Storage API Key** for that zone.
+     * Create a **Pull Zone** that points to the Storage Zone.
+     * Use the **Pull Zone URL** as the plugin’s Base URL.
+     * Use the **Storage Zone name** + **API Key** in the Provider section.
+     * (Optional) set the Storage Endpoint if Bunny gave you a regional endpoint.
+   * Screenshot placeholders (to add later):
+     * Storage Zone settings screen
+     * API key screen
+     * Pull Zone URL screen
+
+3. **Media Library (RML)**
+   * Enable RML mapping
+   * Set folder map per context/media type
+   * Optional: run RML backfill
+
+4. **Delete Local**
+   * Configure deletion policy by context/media type
+   * Allowed extensions list per media type
+
+5. **Optimization**
+   * Max dimension cap
+   * Allowed image sizes (toggle registered sizes)
+   * JPEG/WebP quality
+   * EXIF stripping
+   * WebP/AVIF generation
+   * Keep original (off removes full‑size originals after a scaled version exists)
+   * WebP backfill for existing media
+
+---
+
 ## 🎯 Core Goals
 
 * Eliminate disruptive page redirects for avatar/cover updates
@@ -159,7 +213,6 @@ When updating avatar or cover:
 * Admin offload settings UI (provider selection, base URL, scoping)
 * Folder templates per post type and media type
 * Real Media Library (RML) mapping with context-based routing
-* Per-user RML folders (optional)
 * Deletion policy controls (by context/media type/extension) — gated by offload adapter
 * Offload adapter hooks (upload + post-upload)
 
